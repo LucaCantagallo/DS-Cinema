@@ -8,10 +8,8 @@ def test_serialize_message():
     message = {"type": "TEST", "value": 123}
     data = PacketProtocol.serialize(message)
     
-    # Controllo lunghezza minima (4 byte header + qualcosa di payload)
     assert len(data) > 4
     
-    # Decodifica manuale per verificare la correttezza
     header = data[:4]
     payload = data[4:]
     
@@ -40,7 +38,6 @@ def test_deserialize_partial_packet():
     header = struct.pack('>I', len(json_bytes))
     data = header + json_bytes
     
-    # Tagliamo gli ultimi 2 byte per simulare un pacchetto spezzato dal TCP
     partial_data = data[:-2]
     
     result, remainder = PacketProtocol.deserialize(partial_data)
@@ -55,14 +52,12 @@ def test_deserialize_multiple_packets():
     
     data1 = PacketProtocol.serialize(msg1)
     data2 = PacketProtocol.serialize(msg2)
-    stream = data1 + data2 # TCP li ha incollati insieme
+    stream = data1 + data2 
     
-    # Prima chiamata: deve estrarre il primo e lasciare il secondo
     result1, remainder1 = PacketProtocol.deserialize(stream)
     assert result1 == msg1
     assert remainder1 == data2
     
-    # Seconda chiamata: deve estrarre il secondo
     result2, remainder2 = PacketProtocol.deserialize(remainder1)
     assert result2 == msg2
     assert remainder2 == b""
