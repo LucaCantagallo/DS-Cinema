@@ -86,13 +86,16 @@ class CinemaNode:
             self.gui.log(f"Seat {seat_id} already taken!")
             return
 
+        self.gui.update_seat_color(seat_id, "#FFD700") 
+        self.gui.log(f"Requesting seat {seat_id}...")
+        
+        self.gui.root.update_idletasks()
+
         success = self.algo.request_critical_section(lambda: self._on_enter_cs(seat_id))
         
-        if success:
-            self.gui.log(f"Requesting seat {seat_id}...")
-            self.gui.update_seat_color(seat_id, "#FFD700") 
-        else:
+        if not success:
             self.gui.log("System busy. Please wait.")
+            self.gui.update_seat_color(seat_id, "#90EE90")
 
     def _on_enter_cs(self, seat_id):
         if not self.seats[seat_id]:

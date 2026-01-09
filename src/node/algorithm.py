@@ -37,21 +37,20 @@ class RicartAgrawala:
             self.replies_received = 0
             self._entry_callback = callback
             
-            others = [p_id for p_id in self.get_peers() if p_id != self.node_id]
-            num_others = len(others)
-            
-            self.logger.info(f"REQUESTING CS at TS {self.request_ts}. Waiting for {num_others} replies.")
+            msg = {
+                "type": MessageType.REQUEST,
+                "sender": self.node_id,
+                "ts": self.request_ts
+            }
+
+        successful_targets = self.transport.broadcast(msg, exclude_self=True)
+        num_others = len(successful_targets)
+        
+        self.logger.info(f"REQUEST sent successfully to {num_others} nodes: {successful_targets}")
 
         if num_others == 0:
             self._enter_critical_section()
-            return True
-
-        msg = {
-            "type": MessageType.REQUEST,
-            "sender": self.node_id,
-            "ts": self.request_ts
-        }
-        self.transport.broadcast(msg, exclude_self=True)
+        
         return True
 
     def handle_message(self, msg):
@@ -62,7 +61,6 @@ class RicartAgrawala:
         self.clock.update(ts)
 
         if msg_type == MessageType.REQUEST:
-            time.sleep(3)
             self._handle_request(sender, ts)
         elif msg_type == MessageType.REPLY:
             self._handle_reply()

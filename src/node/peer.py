@@ -57,27 +57,44 @@ class Peer:
         else:
             self.logger.warning(f"Cannot send to {target_node_id}: unknown address")
 
-    def broadcast(self, message: dict, exclude_self=True):
-        targets = []
-        with self._directory_lock:
-            for pid, data in self._peers_directory.items():
-                if exclude_self and pid == self.node_id:
-                    continue
-                targets.append(data)
-        
-        message["sender"] = self.node_id
-        for t in targets:
-            self._send_direct(t["host"], t["port"], message)
+    def broadcast(self, message: dict, exclude_self=True) -> list:
+        successful_recipients = []
+        dead_nodes = []
 
-    def _send_direct(self, host: str, port: int, message: dict):
+        with self._directory_lock:
+            targets = list(self._peers_directory.items())
+
+        message["sender"] = self.node_id
+        
+        for pid, data in targets:
+            if exclude_self and pid == self.node_id:
+                continue
+            
+            success = self._send_direct(data["host"], data["port"], message)
+            
+            if success:
+                successful_recipients.append(pid)
+            else:
+                self.logger.warning(f"Detected crash of node {pid}. Removing from directory.")
+                dead_nodes.append(pid)
+
+        if dead_nodes:
+            with self._directory_lock:
+                for dead_id in dead_nodes:
+                    self._peers_directory.pop(dead_id, None)
+
+        return successful_recipients
+
+    def _send_direct(self, host: str, port: int, message: dict) -> bool:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(3.0) 
+                s.settimeout(2.0)
                 s.connect((host, port))
                 data = PacketProtocol.serialize(message)
                 s.sendall(data)
-        except Exception as e:
-            self.logger.error(f"Failed sending to {host}:{port} -> {e}")
+            return True
+        except Exception:
+            return False
 
     def _listen_loop(self):
         while self.running:
