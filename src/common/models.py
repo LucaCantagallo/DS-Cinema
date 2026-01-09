@@ -9,3 +9,9 @@ class LamportClock:
     def update(self, received_timestamp: int):
         self.value = max(self.value, received_timestamp) + 1
         return self.value
+    
+class MessageType:
+    REQUEST = "REQUEST"  
+    REPLY = "REPLY"      
+    RELEASE = "RELEASE"  
+    SYNC = "SYNC"       
