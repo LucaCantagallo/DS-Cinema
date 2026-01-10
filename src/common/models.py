@@ -11,7 +11,10 @@ class LamportClock:
         return self.value
     
 class MessageType:
-    REQUEST = "REQUEST"  
-    REPLY = "REPLY"      
-    RELEASE = "RELEASE"  
+    REQUEST = "REQUEST"
+    REPLY = "REPLY"
+    RELEASE = "RELEASE"
     SYNC = "SYNC"       
+    SEAT_TAKEN = "SEAT_TAKEN"
+    STATE_REQUEST = "STATE_REQUEST" 
+    STATE_REPLY = "STATE_REPLY"      

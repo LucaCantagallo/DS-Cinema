@@ -61,12 +61,37 @@ class CinemaNode:
 
     def on_network_message(self, msg, sender_ip=None):
         m_type = msg.get("type")
-        
+        sender = msg.get("sender")
+
         if m_type == "SYNC":
             peers = msg.get("peers", {})
+            old_peers_count = len(self.peer.get_known_peers())
             self.peer.update_directory(peers)
-            logger.info(f"Peers updated: {list(peers.keys())}")
-            self.gui.log(f"Peers connected: {len(peers)}")
+            known = self.peer.get_known_peers()
+            if old_peers_count == 0 and len(known) > 0:
+                others = [pid for pid in known if pid != self.node_id]
+                if others:
+                    target = others[0] 
+                    self.gui.log(f"Syncing state from {target}...")
+                    self._request_state_from_peer(target)
+            return
+
+        if m_type == MessageType.STATE_REQUEST:
+            response = {
+                "type": MessageType.STATE_REPLY,
+                "seats": self.seats,
+                "sender": self.node_id
+            }
+            self.peer.send_to_node(sender, response)
+            return
+
+        if m_type == MessageType.STATE_REPLY:
+            new_seats = msg.get("seats")
+            self.seats = new_seats
+            for i, occupied in enumerate(self.seats):
+                color = "#FF6347" if occupied else "#90EE90"
+                self.gui.update_seat_color(i, color)
+            self.gui.log(f"State synced from {sender}!")
             return
 
         if m_type == "SEAT_TAKEN":
@@ -80,6 +105,13 @@ class CinemaNode:
 
         if m_type in [MessageType.REQUEST, MessageType.REPLY]:
             self.algo.handle_message(msg)
+
+    def _request_state_from_peer(self, target_id):
+        msg = {
+            "type": MessageType.STATE_REQUEST,
+            "sender": self.node_id
+        }
+        self.peer.send_to_node(target_id, msg)
 
     def handle_gui_click(self, seat_id):
         if self.seats[seat_id]:
