@@ -18,7 +18,8 @@ class CinemaNode:
     def __init__(self, node_id, port):
         self.node_id = node_id
         self.port = port
-        self.seats = [False] * 25 
+
+        self.seats = [None] * 25 
         
         self.clock = LamportClock()
         self.peer = Peer(node_id, "127.0.0.1", port, self.on_network_message)
@@ -34,9 +35,7 @@ class CinemaNode:
 
     def start(self):
         self.peer.start()
-        
         self.register_to_nameserver()
-        
         self.gui.log(f"Node started on port {self.port}")
         self.gui.start()
 
@@ -67,11 +66,12 @@ class CinemaNode:
             peers = msg.get("peers", {})
             old_peers_count = len(self.peer.get_known_peers())
             self.peer.update_directory(peers)
+            
             known = self.peer.get_known_peers()
             if old_peers_count == 0 and len(known) > 0:
                 others = [pid for pid in known if pid != self.node_id]
                 if others:
-                    target = others[0] 
+                    target = others[0]
                     self.gui.log(f"Syncing state from {target}...")
                     self._request_state_from_peer(target)
             return
@@ -79,7 +79,7 @@ class CinemaNode:
         if m_type == MessageType.STATE_REQUEST:
             response = {
                 "type": MessageType.STATE_REPLY,
-                "seats": self.seats,
+                "seats": self.seats, 
                 "sender": self.node_id
             }
             self.peer.send_to_node(sender, response)
@@ -88,64 +88,109 @@ class CinemaNode:
         if m_type == MessageType.STATE_REPLY:
             new_seats = msg.get("seats")
             self.seats = new_seats
-            for i, occupied in enumerate(self.seats):
-                color = "#FF6347" if occupied else "#90EE90"
-                self.gui.update_seat_color(i, color)
+            self._refresh_gui()
             self.gui.log(f"State synced from {sender}!")
             return
 
         if m_type == "SEAT_TAKEN":
             seat_id = msg.get("seat_id")
-            sender = msg.get("sender")
-            self.seats[seat_id] = True
-            self.gui.update_seat_color(seat_id, "#FF6347") 
-            self.gui.log(f"Seat {seat_id} taken by {sender}")
+            owner = msg.get("seat_owner") 
+            self.seats[seat_id] = owner
+            self._update_single_seat(seat_id)
+            self.gui.log(f"Seat {seat_id} taken by {owner}")
+            self.clock.update(msg.get("ts", 0))
+            return
+
+        if m_type == "SEAT_FREED":
+            seat_id = msg.get("seat_id")
+            prev_owner = msg.get("sender")
+            self.seats[seat_id] = None
+            self._update_single_seat(seat_id)
+            self.gui.log(f"Seat {seat_id} freed by {prev_owner}")
             self.clock.update(msg.get("ts", 0))
             return
 
         if m_type in [MessageType.REQUEST, MessageType.REPLY]:
             self.algo.handle_message(msg)
 
+    def _refresh_gui(self):
+        """Ricolora tutta la griglia in base ai proprietari"""
+        for i in range(25):
+            self._update_single_seat(i)
+
+    def _update_single_seat(self, seat_id):
+        owner = self.seats[seat_id]
+        if owner is None:
+            self.gui.update_seat_color(seat_id, "#90EE90")
+        elif owner == self.node_id:
+            self.gui.update_seat_color(seat_id, "#32CD32")
+        else:
+            self.gui.update_seat_color(seat_id, "#FF6347") 
+
     def _request_state_from_peer(self, target_id):
-        msg = {
-            "type": MessageType.STATE_REQUEST,
-            "sender": self.node_id
-        }
+        msg = {"type": MessageType.STATE_REQUEST, "sender": self.node_id}
         self.peer.send_to_node(target_id, msg)
 
     def handle_gui_click(self, seat_id):
-        if self.seats[seat_id]:
-            self.gui.log(f"Seat {seat_id} already taken!")
+        current_owner = self.seats[seat_id]
+
+        if current_owner is not None and current_owner != self.node_id:
+            self.gui.log(f"Seat {seat_id} is owned by {current_owner}!")
             return
 
-        self.gui.update_seat_color(seat_id, "#FFD700") 
+        if current_owner == self.node_id:
+            self.gui.log(f"Releasing seat {seat_id}...")
+            self.gui.update_seat_color(seat_id, "#FFD700") 
+            self.gui.root.update_idletasks()
+            
+            success = self.algo.request_critical_section(lambda: self._on_release_cs(seat_id))
+            if not success:
+                self.gui.log("System busy. Keep clicking.")
+                self._update_single_seat(seat_id)
+            return
+
         self.gui.log(f"Requesting seat {seat_id}...")
-        
+        self.gui.update_seat_color(seat_id, "#FFD700") 
         self.gui.root.update_idletasks()
 
-        success = self.algo.request_critical_section(lambda: self._on_enter_cs(seat_id))
-        
+        success = self.algo.request_critical_section(lambda: self._on_acquire_cs(seat_id))
         if not success:
-            self.gui.log("System busy. Please wait.")
-            self.gui.update_seat_color(seat_id, "#90EE90")
+            self.gui.log("System busy.")
+            self._update_single_seat(seat_id)
 
-    def _on_enter_cs(self, seat_id):
-        if not self.seats[seat_id]:
-            self.seats[seat_id] = True
-            self.gui.update_seat_color(seat_id, "#32CD32") 
-            self.gui.log(f"SUCCESS: Seat {seat_id} booked!")
+    def _on_acquire_cs(self, seat_id):
+        if self.seats[seat_id] is None:
+            self.seats[seat_id] = self.node_id
+            self._update_single_seat(seat_id)
+            self.gui.log(f"SUCCESS: Booked seat {seat_id}!")
             
-            update_msg = {
+            self.peer.broadcast({
                 "type": "SEAT_TAKEN",
                 "seat_id": seat_id,
+                "seat_owner": self.node_id,
                 "ts": self.clock.value
-            }
-            self.peer.broadcast(update_msg)
+            })
         else:
-            self.gui.log(f"FAIL: Seat {seat_id} was stolen!")
-            self.gui.update_seat_color(seat_id, "#FF6347")
+            self.gui.log(f"FAIL: Seat {seat_id} taken by {self.seats[seat_id]}!")
+            self._update_single_seat(seat_id)
 
-        time.sleep(1) 
+        time.sleep(0.5) 
+        self.algo.release_critical_section()
+
+    def _on_release_cs(self, seat_id):
+        if self.seats[seat_id] == self.node_id:
+            self.seats[seat_id] = None
+            self._update_single_seat(seat_id)
+            self.gui.log(f"RELEASED: Seat {seat_id} is now free.")
+            
+            self.peer.broadcast({
+                "type": "SEAT_FREED",
+                "seat_id": seat_id,
+                "sender": self.node_id,
+                "ts": self.clock.value
+            })
+        
+        time.sleep(0.5)
         self.algo.release_critical_section()
 
 if __name__ == "__main__":
