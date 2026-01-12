@@ -149,7 +149,7 @@ class CinemaNode:
                 self._update_single_seat(seat_id)
             return
 
-        self.gui.log(f"Requesting seat {seat_id}...")
+        self.gui.log(f"Requesting seat {seat_id} (Current T={self.clock.value})...")
         self.gui.update_seat_color(seat_id, "#FFD700") 
         self.gui.root.update_idletasks()
 
@@ -162,7 +162,7 @@ class CinemaNode:
         if self.seats[seat_id] is None:
             self.seats[seat_id] = self.node_id
             self._update_single_seat(seat_id)
-            self.gui.log(f"SUCCESS: Booked seat {seat_id}!")
+            self.gui.log(f"SUCCESS: Booked seat {seat_id} @ Time {self.clock.value}")
             
             self.peer.broadcast({
                 "type": "SEAT_TAKEN",
