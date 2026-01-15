@@ -22,15 +22,24 @@ class CinemaNode:
         self.seats = [None] * 25 
         
         self.clock = LamportClock()
-        self.peer = Peer(node_id, "127.0.0.1", port, self.on_network_message)
-        
+
         self.algo = RicartAgrawala(
             node_id=node_id,
             clock=self.clock,
-            peers_list_func=self.peer.get_known_peers,
-            peer_transport=self.peer
+            peers_list_func=lambda: self.peer.get_known_peers(),
+            peer_transport=None 
         )
         
+        self.peer = Peer(
+            node_id, 
+            "127.0.0.1", 
+            port, 
+            self.on_network_message,
+            on_peer_disconnect=self.algo.on_peer_lost
+        )
+        
+        self.algo.transport = self.peer
+
         self.gui = CinemaGUI(node_id, total_seats=25, on_seat_click=self.handle_gui_click)
 
     def start(self):
@@ -114,7 +123,6 @@ class CinemaNode:
             self.algo.handle_message(msg)
 
     def _refresh_gui(self):
-        """Ricolora tutta la griglia in base ai proprietari"""
         for i in range(25):
             self._update_single_seat(i)
 
@@ -141,21 +149,25 @@ class CinemaNode:
         if current_owner == self.node_id:
             self.gui.log(f"Releasing seat {seat_id}...")
             self.gui.update_seat_color(seat_id, "#FFD700") 
-            self.gui.root.update_idletasks()
             
-            success = self.algo.request_critical_section(lambda: self._on_release_cs(seat_id))
-            if not success:
-                self.gui.log("System busy. Keep clicking.")
-                self._update_single_seat(seat_id)
+            threading.Thread(target=self._async_release, args=(seat_id,)).start()
             return
 
         self.gui.log(f"Requesting seat {seat_id} (Current T={self.clock.value})...")
         self.gui.update_seat_color(seat_id, "#FFD700") 
-        self.gui.root.update_idletasks()
+        
+        threading.Thread(target=self._async_request, args=(seat_id,)).start()
 
+    def _async_request(self, seat_id):
         success = self.algo.request_critical_section(lambda: self._on_acquire_cs(seat_id))
         if not success:
             self.gui.log("System busy.")
+            self._update_single_seat(seat_id)
+
+    def _async_release(self, seat_id):
+        success = self.algo.request_critical_section(lambda: self._on_release_cs(seat_id))
+        if not success:
+            self.gui.log("System busy. Keep clicking.")
             self._update_single_seat(seat_id)
 
     def _on_acquire_cs(self, seat_id):

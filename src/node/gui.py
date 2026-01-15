@@ -50,10 +50,16 @@ class CinemaGUI:
             self.on_seat_click(seat_id)
 
     def update_seat_color(self, seat_id, color):
+        self.root.after(0, lambda: self._update_seat_color_safe(seat_id, color))
+
+    def _update_seat_color_safe(self, seat_id, color):
         if seat_id in self.buttons:
             self.buttons[seat_id].configure(bg=color)
 
     def log(self, message):
+        self.root.after(0, lambda: self._log_safe(message))
+
+    def _log_safe(self, message):
         self.log_text.configure(state='normal')
         self.log_text.insert("1.0", message + "\n")
         self.log_text.configure(state='disabled')

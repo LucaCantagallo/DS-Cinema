@@ -86,13 +86,20 @@ class RicartAgrawala:
     def _handle_reply(self):
         with self._lock:
             self.replies_received += 1
-            others = [p for p in self.get_peers() if p != self.node_id]
-            others_count = len(others)
-            
-            self.logger.info(f"Reply received. Total: {self.replies_received}/{others_count}")
-            
-            if self.state == State.WANTED and self.replies_received >= others_count:
-                self._enter_critical_section()
+            self._check_entry_condition()
+
+    def on_peer_lost(self, peer_id):
+        with self._lock:
+            self.logger.info(f"Peer {peer_id} lost. Re-evaluating.")
+            if self.state == State.WANTED:
+                self._check_entry_condition()
+
+    def _check_entry_condition(self):
+        others = [p for p in self.get_peers() if p != self.node_id]
+        others_count = len(others)    
+        self.logger.info(f"Replies: {self.replies_received}/{others_count}")      
+        if self.replies_received >= others_count:
+            self._enter_critical_section()
 
     def _enter_critical_section(self):
         self.state = State.HELD

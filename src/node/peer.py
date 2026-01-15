@@ -5,18 +5,19 @@ from typing import Callable, Dict, Tuple
 from src.common.protocol import PacketProtocol
 
 class Peer:
-    def __init__(self, node_id: str, host: str, port: int, on_message_received: Callable[[dict, str], None]):
+    def __init__(self, node_id: str, host: str, port: int, on_message_received: Callable[[dict, str], None], on_peer_disconnect: Callable[[str], None] = None):
         self.node_id = node_id
         self.host = host
         self.port = port
         self.on_message_received = on_message_received
+        self.on_peer_disconnect = on_peer_disconnect
         
         self.running = False
         self._server_socket = None
         self._server_thread = None
         
         self._peers_directory: Dict[str, Dict] = {}
-        self._directory_lock = threading.Lock()
+        self._directory_lock = threading.RLock()
         
         self.logger = logging.getLogger(f"Node-{node_id}")
 
@@ -82,6 +83,8 @@ class Peer:
             with self._directory_lock:
                 for dead_id in dead_nodes:
                     self._peers_directory.pop(dead_id, None)
+                    if self.on_peer_disconnect:
+                        self.on_peer_disconnect(dead_id)
 
         return successful_recipients
 
